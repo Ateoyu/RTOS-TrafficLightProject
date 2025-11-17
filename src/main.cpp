@@ -6,6 +6,9 @@
 QueueHandle_t xLoggerQueue;
 SemaphoreHandle_t sensorSemaphore;
 SemaphoreHandle_t buttonSemaphore;
+TaskHandle_t xDefaultLightTaskHandle;
+TaskHandle_t xBuzzerTaskHandle;
+TimerHandle_t xLightTimer;
 
 const int trafficLightRed = 6;
 const int trafficLightYellow = 5;
@@ -22,6 +25,7 @@ const int rangeFinderTrig = 18;
 const float soundSpeed = 0.034;
 
 const int button = 10;
+
 //queue struct
 enum Cause { NORMAL, BUTTON, SENSOR };
 
@@ -70,9 +74,13 @@ void triggerLightSwitch() {
 }
 
 void IRAM_ATTR handlePedestrianButtonISR() {
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    BaseType_t xHigherPriorityTaskWoken = pdTRUE;
     xSemaphoreGiveFromISR(buttonSemaphore, &xHigherPriorityTaskWoken);
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
+
+void vLightTimerCallback(TimerHandle_t xTimer) {
+    xTaskNotifyGive(xDefaultLightTaskHandle);
 }
 
 [[noreturn]] void taskChangeLightsFromPedestrianButtonISR(void *pv) {
@@ -80,6 +88,7 @@ void IRAM_ATTR handlePedestrianButtonISR() {
         if (xSemaphoreTake(buttonSemaphore, portMAX_DELAY) == pdTRUE) {
             if (digitalRead(trafficLightGreen) == HIGH) {
                 vTaskDelay(pdMS_TO_TICKS(300));
+                xTimerReset(xLightTimer, 0);
                 triggerLightSwitch();
                 LightCommand cmd = {BUTTON};
                 xQueueSend(xLoggerQueue, &cmd, 0);
@@ -92,7 +101,7 @@ void IRAM_ATTR handlePedestrianButtonISR() {
 
 [[noreturn]] void taskDefaultLightBehaviour(void *pv) {
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(10000));
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         triggerLightSwitch();
         LightCommand cmd = {NORMAL};
         xQueueSend(xLoggerQueue, &cmd, 0);
@@ -133,9 +142,19 @@ void setup() {
     xLoggerQueue = xQueueCreate(5, sizeof(LightCommand));
     attachInterrupt(digitalPinToInterrupt(button), handlePedestrianButtonISR, FALLING);
 
-    xTaskCreate(taskDefaultLightBehaviour, "default", 2048, nullptr, 1, nullptr);
     xTaskCreate(taskLogger, "logger", 2048, nullptr, 1, nullptr);
     xTaskCreate(taskChangeLightsFromPedestrianButtonISR, "changeLightsButtonISR", 2048, nullptr, 2, nullptr);
+    xTaskCreate(taskDefaultLightBehaviour, "default", 2048, nullptr, 1, &xDefaultLightTaskHandle);
+    // Create 10-second autoreload timer
+    xLightTimer = xTimerCreate(
+        "LightTimer",
+        pdMS_TO_TICKS(10000),
+        pdTRUE,
+        nullptr,
+        vLightTimerCallback
+    );
+    xTimerStart(xLightTimer, 0);
 }
 
-void loop() {}
+void loop() {
+}
