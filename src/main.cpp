@@ -10,12 +10,19 @@ TaskHandle_t xDefaultLightTaskHandle;
 TaskHandle_t xBuzzerTaskHandle;
 TimerHandle_t xLightTimer;
 
-const int trafficLightRed = 6;
-const int trafficLightYellow = 5;
-const int trafficLightGreen = 4;
+struct TrafficLightPins {
+    int red;
+    int yellow;
+    int green;
+};
 
-const int pedestrianLightRed = 2;
-const int pedestrianLightGreen = 1;
+struct PedestrianLightPins {
+    int red;
+    int green;
+};
+
+const TrafficLightPins traffic = {6, 5, 4};
+const PedestrianLightPins pedestrian = {2, 1};
 
 const int buzzer = 0;
 const int NOTE_C4 = 262;
@@ -34,23 +41,23 @@ typedef struct {
 } LightCommand;
 
 //Light transitions
-void redToGreenTraffic(const int redLedPin, const int yellowLedPin, const int greenLedPin) {
-    digitalWrite(redLedPin, HIGH);
-    digitalWrite(yellowLedPin, HIGH);
+void redToGreenTraffic(const int redLed, const int yellowLed, const int greenLed) {
+    digitalWrite(redLed, HIGH);
+    digitalWrite(yellowLed, HIGH);
     vTaskDelay(pdMS_TO_TICKS(600));
-    digitalWrite(redLedPin, LOW);
-    digitalWrite(yellowLedPin, LOW);
-    digitalWrite(greenLedPin, HIGH);
+    digitalWrite(redLed, LOW);
+    digitalWrite(yellowLed, LOW);
+    digitalWrite(greenLed, HIGH);
 }
 
-void greenToRedTraffic(const int redLedPin, const int yellowLedPin, const int greenLedPin) {
-    digitalWrite(greenLedPin, HIGH);
+void greenToRedTraffic(const int redLed, const int yellowLed, const int greenLed) {
+    digitalWrite(greenLed, HIGH);
     vTaskDelay(pdMS_TO_TICKS(600));
-    digitalWrite(greenLedPin, LOW);
-    digitalWrite(yellowLedPin, HIGH);
+    digitalWrite(greenLed, LOW);
+    digitalWrite(yellowLed, HIGH);
     vTaskDelay(pdMS_TO_TICKS(600));
-    digitalWrite(yellowLedPin, LOW);
-    digitalWrite(redLedPin, HIGH);
+    digitalWrite(yellowLed, LOW);
+    digitalWrite(redLed, HIGH);
 }
 
 void redToGreenPedestrian(const int redLed, const int greenLed) {
@@ -64,12 +71,14 @@ void greenToRedPedestrian(const int redLed, const int greenLed) {
 }
 
 void triggerLightSwitch() {
-    if (digitalRead(pedestrianLightGreen) == HIGH) {
-        redToGreenTraffic(trafficLightRed, trafficLightYellow, trafficLightGreen);
-        greenToRedPedestrian(pedestrianLightRed, pedestrianLightGreen);
+    if (digitalRead(pedestrian.green) == HIGH) {
+        redToGreenTraffic(traffic.red, traffic.yellow, traffic.green);
+        greenToRedPedestrian(pedestrian.red, pedestrian.green);
+        xTaskNotifyGive(xBuzzerTaskHandle);
     } else {
-        greenToRedTraffic(trafficLightRed, trafficLightYellow, trafficLightGreen);
-        redToGreenPedestrian(pedestrianLightRed, pedestrianLightGreen);
+        greenToRedTraffic(traffic.red, traffic.yellow, traffic.green);
+        redToGreenPedestrian(pedestrian.red, pedestrian.green);
+        xTaskNotifyGive(xBuzzerTaskHandle);
     }
 }
 
@@ -86,7 +95,7 @@ void vLightTimerCallback(TimerHandle_t xTimer) {
 [[noreturn]] void taskChangeLightsFromPedestrianButtonISR(void *pv) {
     for (;;) {
         if (xSemaphoreTake(buttonSemaphore, portMAX_DELAY) == pdTRUE) {
-            if (digitalRead(trafficLightGreen) == HIGH) {
+            if (digitalRead(traffic.green) == HIGH) {
                 vTaskDelay(pdMS_TO_TICKS(300));
                 xTimerReset(xLightTimer, 0);
                 triggerLightSwitch();
@@ -108,6 +117,22 @@ void vLightTimerCallback(TimerHandle_t xTimer) {
     }
 }
 
+[[noreturn]] void taskBuzzer(void *pv) {
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        while (digitalRead(pedestrian.green) == HIGH) {
+            digitalWrite(buzzer, HIGH);
+            vTaskDelay(pdMS_TO_TICKS(150));
+            digitalWrite(buzzer, LOW);
+            vTaskDelay(pdMS_TO_TICKS(150));
+        }
+
+        digitalWrite(buzzer, LOW);
+    }
+}
+
+
 [[noreturn]] void taskLogger(void *pv) {
     LightCommand receivedCmd;
     for (;;) {
@@ -124,18 +149,18 @@ void vLightTimerCallback(TimerHandle_t xTimer) {
 void setup() {
     Serial.begin(115200);
 
-    pinMode(trafficLightRed, OUTPUT);
-    pinMode(trafficLightYellow, OUTPUT);
-    pinMode(trafficLightGreen, OUTPUT);
-    pinMode(pedestrianLightRed, OUTPUT);
-    pinMode(pedestrianLightGreen, OUTPUT);
+    pinMode(traffic.red, OUTPUT);
+    pinMode(traffic.yellow, OUTPUT);
+    pinMode(traffic.green, OUTPUT);
+    pinMode(pedestrian.red, OUTPUT);
+    pinMode(pedestrian.green, OUTPUT);
     pinMode(buzzer, OUTPUT);
     pinMode(rangeFinderEcho, INPUT);
     pinMode(rangeFinderTrig, OUTPUT);
     pinMode(button, INPUT_PULLUP);
 
-    digitalWrite(trafficLightGreen, HIGH);
-    digitalWrite(pedestrianLightRed, HIGH);
+    digitalWrite(traffic.green, HIGH);
+    digitalWrite(pedestrian.red, HIGH);
 
     sensorSemaphore = xSemaphoreCreateBinary();
     buttonSemaphore = xSemaphoreCreateBinary();
@@ -145,6 +170,7 @@ void setup() {
     xTaskCreate(taskLogger, "logger", 2048, nullptr, 1, nullptr);
     xTaskCreate(taskChangeLightsFromPedestrianButtonISR, "changeLightsButtonISR", 2048, nullptr, 2, nullptr);
     xTaskCreate(taskDefaultLightBehaviour, "default", 2048, nullptr, 1, &xDefaultLightTaskHandle);
+    xTaskCreate(taskBuzzer, "buzzer", 2048, nullptr, 1, &xBuzzerTaskHandle);
     // Create 10-second autoreload timer
     xLightTimer = xTimerCreate(
         "LightTimer",
