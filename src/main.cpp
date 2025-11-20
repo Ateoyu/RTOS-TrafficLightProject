@@ -21,20 +21,20 @@ struct PedestrianLightPins {
     int green;
 };
 
-const TrafficLightPins traffic = {6, 5, 4};
-const PedestrianLightPins pedestrian = {2, 1};
+constexpr TrafficLightPins traffic = {6, 5, 4};
+constexpr PedestrianLightPins pedestrian = {2, 1};
 
-const int buzzer = 0;
-const int NOTE_C4 = 262;
+constexpr int buzzer = 0;
+constexpr int NOTE_C4 = 262;
 
-const int rangeFinderEcho = 17;
-const int rangeFinderTrig = 18;
-const float soundSpeed = 0.034;
+constexpr int rangeFinderEcho = 17;
+constexpr int rangeFinderTrig = 18;
+constexpr float soundSpeed = 0.034;
 
-const int button = 10;
+constexpr int button = 10;
 
 //queue struct
-enum Cause { NORMAL, BUTTON, SENSOR };
+enum Cause { NORMAL, BUTTON };
 
 typedef struct {
     Cause cause;
@@ -140,7 +140,7 @@ void vLightTimerCallback(TimerHandle_t xTimer) {
             switch (receivedCmd.cause) {
                 case NORMAL: Serial.printf("Received Normal light switch command.\n"); break;
                 case BUTTON: Serial.printf("Received Button light switch command.\n"); break;
-                case SENSOR: Serial.printf("Received Sensor light switch command.\n"); break;
+                // case SENSOR: Serial.printf("Received Sensor light switch command.\n"); break;
             }
         }
     }
@@ -152,11 +152,15 @@ void setup() {
     pinMode(traffic.red, OUTPUT);
     pinMode(traffic.yellow, OUTPUT);
     pinMode(traffic.green, OUTPUT);
+
     pinMode(pedestrian.red, OUTPUT);
     pinMode(pedestrian.green, OUTPUT);
+
     pinMode(buzzer, OUTPUT);
+
     pinMode(rangeFinderEcho, INPUT);
     pinMode(rangeFinderTrig, OUTPUT);
+
     pinMode(button, INPUT_PULLUP);
 
     digitalWrite(traffic.green, HIGH);
@@ -171,7 +175,7 @@ void setup() {
     xTaskCreate(taskChangeLightsFromPedestrianButtonISR, "changeLightsButtonISR", 2048, nullptr, 2, nullptr);
     xTaskCreate(taskDefaultLightBehaviour, "default", 2048, nullptr, 1, &xDefaultLightTaskHandle);
     xTaskCreate(taskBuzzer, "buzzer", 2048, nullptr, 1, &xBuzzerTaskHandle);
-    // Create 10-second autoreload timer
+    // Create 10-second auto reload timer
     xLightTimer = xTimerCreate(
         "LightTimer",
         pdMS_TO_TICKS(10000),
@@ -182,5 +186,4 @@ void setup() {
     xTimerStart(xLightTimer, 0);
 }
 
-void loop() {
-}
+void loop() {}
